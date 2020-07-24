@@ -14,6 +14,12 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QTableWidgetItem, QMessageBox, QFileDialog
 import pandas as pd
 import sys
+from urllib.request import urlopen
+import urllib
+from bs4 import BeautifulSoup
+import requests
+import json
+import regex as re
 
 
 class Ui_MainWindow(object):
@@ -21,7 +27,7 @@ class Ui_MainWindow(object):
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(550, 600)
         # 保存csv
-        self.df_csv = pd.DataFrame(columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位"])
+        # self.df_csv = pd.DataFrame(columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位", "链接"])
 
         self.centralwidget = QtWidgets.QWidget(MainWindow)
         self.centralwidget.setObjectName("centralwidget")
@@ -76,7 +82,7 @@ class Ui_MainWindow(object):
         self.tableWidget = QtWidgets.QTableWidget(self.groupBox_3)
         self.tableWidget.setGeometry(QtCore.QRect(10, 20, 501, 251))
         self.tableWidget.setAutoScrollMargin(10)
-        self.tableWidget.setColumnCount(5)
+        self.tableWidget.setColumnCount(6)
         self.tableWidget.setObjectName("tableWidget")
         self.tableWidget.setRowCount(0)
         item = QtWidgets.QTableWidgetItem()
@@ -89,9 +95,10 @@ class Ui_MainWindow(object):
         self.tableWidget.setHorizontalHeaderItem(3, item)
         item = QtWidgets.QTableWidgetItem()
         self.tableWidget.setHorizontalHeaderItem(4, item)
-        # item = QtWidgets.QTableWidgetItem()
-        # self.tableWidget.setHorizontalHeaderItem(5, item)
-        self.tableWidget.horizontalHeader().setDefaultSectionSize(95)
+        item = QtWidgets.QTableWidgetItem()
+        self.tableWidget.setHorizontalHeaderItem(5, item)
+
+        self.tableWidget.horizontalHeader().setDefaultSectionSize(80)  # 调整列宽
         self.pushButton_2 = QtWidgets.QPushButton(self.groupBox_3)
         self.pushButton_2.setGeometry(QtCore.QRect(210, 275, 75, 23))
         self.pushButton_2.setObjectName("pushButton_2")
@@ -144,6 +151,8 @@ class Ui_MainWindow(object):
         item.setText(_translate("MainWindow", "通讯作者"))
         item = self.tableWidget.horizontalHeaderItem(4)
         item.setText(_translate("MainWindow", "第一单位"))
+        item = self.tableWidget.horizontalHeaderItem(5)
+        item.setText(_translate("MainWindow", "链接"))
         self.pushButton_2.setText(_translate("MainWindow", "导出csv"))
 
     def function(self):
@@ -174,37 +183,36 @@ class Ui_MainWindow(object):
             self.lineEdit_2.setDisabled(False)
 
     # insert,只是简单插入一个固定数据
-    def table_insert(self):
+    def table_insert(self, title, chn_title, first, ref, link, loc):
         row = self.tableWidget.rowCount()
         self.tableWidget.insertRow(row)
 
-        item_title = QTableWidgetItem("XXX")
+        item_title = QTableWidgetItem(title)
         # item_title.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)  # 设置物件的状态为只可被选择（未设置可编辑）
-        item_chn_title = QTableWidgetItem("基于深度强化学习的污水处理厂多参数实时优化控制")
-        item_first = QTableWidgetItem("陈科桦")  # 我们要求它可以修改，所以使用默认的状态即可
-        item_ref = QTableWidgetItem("陈科桦")
-        item_loc = QTableWidgetItem("中国科学院大学")
+        item_chn_title = QTableWidgetItem(chn_title)
+        item_first = QTableWidgetItem(first)
+        item_ref = QTableWidgetItem(ref)
+        item_link = QTableWidgetItem(link)
+        item_loc = QTableWidgetItem(loc)
 
         self.tableWidget.setItem(row, 0, item_title)
         self.tableWidget.setItem(row, 1, item_chn_title)
         self.tableWidget.setItem(row, 2, item_first)
         self.tableWidget.setItem(row, 3, item_ref)
         self.tableWidget.setItem(row, 4, item_loc)
+        self.tableWidget.setItem(row, 5, item_link)
 
     def crawler_volume(self):
         self.label_2.setText("输入期数(101-290)")  # 设置期数范围
         pass
 
     def crawler_papers(self):
-        self.df_csv = pd.DataFrame(columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位"])
+        url = "https://www.sciencedirect.com/journal/water-research/vol/180/suppl/C"
+        self.df_csv = pd.DataFrame(columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位", "链接"])
         self.tableWidget.setRowCount(0)  # 先清空表格
-        for i in range(101):
-            QApplication.processEvents()
-            time.sleep(0.1)
-            self.progressBar.setValue(i)
-            self.table_insert()
-            new = pd.DataFrame(data=[[1, 1, 1, 1, 1]], columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位"])
-            self.df_csv = self.df_csv.append(new, ignore_index=True)
+
+        crawler = self.get_results(url)
+
         pass
 
     def output_csv(self):  # 导出csv
@@ -212,6 +220,122 @@ class Ui_MainWindow(object):
         self.df_csv.to_csv(open_path + '/爬虫结果.csv', encoding="gbk")
         QMessageBox.information(self.pushButton_2, "环境科研小助手", "导出完成！")
         pass
+
+    # 爬虫函数
+    def author_info(self, result):
+        authors = {'一作': [], '通讯': [], '其他': []}
+        while True:
+            test = re.findall(self.regex1, result[2:])
+            if not test:
+                break
+            else:
+                result = test[0]
+        # print(result)
+        auths = re.findall(self.regex2, result)
+        auths_str = auths[0][11:]
+        refs = re.findall('\{.*?\}', auths_str)
+
+        # 提取每个作者的信息dict并print
+        for i in range(len(refs)):
+            refs[i] = json.loads(refs[i])  # 使refs[i]从str->dict
+            name = refs[i]['givenName'] + ' ' + refs[i]['surname']
+
+            if 'cor1' in refs[i]['refs'] or 'cor2' in refs[i]['refs']:
+                authors['通讯'].append(name)
+
+            if refs[i]['id'] == 'auth-0':
+                authors['一作'].append(name)
+
+            authors['其他'].append(name)
+
+        for auth in authors['其他']:
+            if auth in authors['一作'] or auth in authors['通讯']:
+                authors['其他'].remove(auth)
+
+        return authors
+
+    def get_results(self, url):
+        self.headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
+        }
+
+        # url = "https://www.sciencedirect.com/journal/water-research/vol/180/suppl/C"
+        self.url = url
+        self.html = requests.get(self.url, headers=self.headers)
+
+        self.soup = BeautifulSoup(self.html.content, features='lxml')
+
+        self.title = self.soup.find_all('span', {'class': 'js-article-title'})
+        self.name = self.soup.find_all('div', {'class': 'text-s u-clr-grey8 js-article__item__authors'})
+        self.link = self.soup.find_all('a', {'class': 'anchor article-content-title u-margin-xs-top u-margin-s-bottom'},
+                                       href=True)
+        self.i = 0
+        self.count = 0
+
+        # 提取网页中存储各paper附属信息的内容并用正则化提取所需片段，主要提取authors这个字典
+        self.otherinfo = self.soup.find_all(type="application/json")
+        self.auth = self.soup.find_all('auth')
+        self.soup2 = self.otherinfo[0]
+        self.soup2_str = self.soup2.contents[0].replace('\\', '')
+        self.soup2_str = self.soup2_str[1:-1]
+
+        # results = 正则化得到一个list，各元素对应每篇文章的信息
+        self.regex1 = '\"title\".*?\"authors\"\:\[\{.*?\}\]'
+        self.regex2 = '\"authors\"\:\[\{.*\}'
+        self.results = re.findall(self.regex1, self.soup2_str)
+
+        res = {'标题': [], '中文标题': [], '作者': [], '链接': []}
+        for title, link, num in zip(self.title, self.link, range(len(self.title))):
+            paper_title = title.get_text()
+
+            res['标题'].append(title.get_text())
+            url = 'http://fanyi.youdao.com/translate?smartresult=' \
+                       'dict&smartresult=rule&sessionFrom=https://www.baidu.com/link'
+
+            data = {'from': 'AUTO', 'to': 'AUTO', 'smartresult': 'dict', 'client': 'fanyideskweb',
+                    'salt': '1500092479607',
+                    'sign': 'c98235a85b213d482b8e65f6b1065e26', 'doctype': 'json', 'version': '2.1',
+                    'keyfrom': 'fanyi.web',
+                    'action': 'FY_BY_CL1CKBUTTON', 'typoResult': 'true', 'i': title.get_text()}
+
+            data = urllib.parse.urlencode(data).encode('utf-8')
+            response = urllib.request.urlopen(url, data)
+            html = response.read().decode('utf-8')
+            ta = json.loads(html)
+
+            res['中文标题'].append(ta['translateResult'][0][0]['tgt'])
+            chn_title = ta['translateResult'][0][0]['tgt']
+
+            if title.get_text() == 'Editorial Board':
+                res['作者'].append('None')
+                first = 'None'
+                ref = 'None'
+                self.count += 1
+            elif title.get_text() == 'Publisher\'s Note':  # 不是note
+                res['作者'].append('None')
+                first = 'None'
+                ref = 'None'
+                self.count += 1
+            else:
+                # print('作者：', name[i-count].get_text())
+                res['作者'].append(self.author_info(self.results[self.i - self.count]))
+                authors = self.author_info(self.results[self.i - self.count])
+                first = ', '.join(i for i in authors['一作'])
+                ref = ', '.join(i for i in authors['通讯'])
+
+            res['链接'].append('https://www.sciencedirect.com{}'.format(link['href']))
+            link = 'https://www.sciencedirect.com' + link['href']
+
+            self.i += 1
+
+            QApplication.processEvents()
+            self.progressBar.setValue((num + 1) / len(self.title) * 100)
+            self.table_insert(paper_title, chn_title, first, ref, link, loc='None')
+            new = pd.DataFrame(data=[[paper_title, chn_title, first, ref, 'None', link]],
+                               columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位", "链接"])
+            self.df_csv = self.df_csv.append(new, ignore_index=True)
+
+        return res
 
 
 if __name__ == '__main__':
