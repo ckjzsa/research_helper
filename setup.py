@@ -1,6 +1,8 @@
 import sys
 from cx_Freeze import setup, Executable
+import os
 
+os.chdir('D:\\research_helper\\')
 base = None
 # 判断Windows系统
 if sys.platform == 'win32':
@@ -34,9 +36,9 @@ executables = [
         'GUI.py'
         , base=base
         # 生成 的文件 名字
-        , targetName='环境科研小助手.exe'
+        , targetName='env_helper.exe'
         # 生成的EXE的图标
-        # , icon = "test_32.ico" #图标, 32*32px
+        , icon="icon.ico" #图标, 32*32px
     )
 ]
 

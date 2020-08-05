@@ -76,6 +76,7 @@ class Ui_MainWindow(object):
         self.plainTextEdit = QtWidgets.QPlainTextEdit(self.groupBox_2)
         self.plainTextEdit.setGeometry(QtCore.QRect(10, 20, 251, 211))
         self.plainTextEdit.setObjectName("plainTextEdit")
+        self.plainTextEdit.setPlainText("爬取文章的时候会有点卡哦，可以过一会再来看哦~")
         self.groupBox_3 = QtWidgets.QGroupBox(self.centralwidget)
         self.groupBox_3.setGeometry(QtCore.QRect(10, 260, 521, 301))
         self.groupBox_3.setObjectName("groupBox_3")
@@ -130,7 +131,8 @@ class Ui_MainWindow(object):
         self.pushButton.setText(_translate("MainWindow", "爬取期数"))
         self.comboBox.setItemText(0, _translate("MainWindow", "Water Research"))
         self.comboBox.setItemText(1, _translate("MainWindow", "Chemical Engineering Journal"))
-        self.comboBox.setItemText(2, _translate("MainWindow", "Journal of Cleaner Production"))
+        # self.comboBox.setItemText(2, _translate("MainWindow", "Journal of Cleaner Production"))
+        # self.comboBox.setItemText(3, _translate("MainWindow", "Environmental Science and Technology"))
         self.checkBox.setText(_translate("MainWindow", "输入网址"))
         self.label.setText(_translate("MainWindow", "期数选择"))
         self.checkBox_2.setText(_translate("MainWindow", "全部爬取"))
@@ -203,17 +205,96 @@ class Ui_MainWindow(object):
         self.tableWidget.setItem(row, 5, item_link)
 
     def crawler_volume(self):
-        self.label_2.setText("输入期数(101-290)")  # 设置期数范围
-        pass
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
+        }
+        vol = 0
+        iss = 0
+        if not self.checkBox.isChecked():
+            item = self.comboBox.currentText()
+            if item == "Water Research":
+                main_page = 'https://www.sciencedirect.com/journal/water-research'
+                html_url = requests.get(main_page, headers=headers)
+                html_url.encoding = 'utf-8'
+                soup_comp = BeautifulSoup(html_url.content, features='lxml')
+                info = str(soup_comp)
+                # info = soup_comp.find(type="application/json").get_text()
+                vol = re.findall('latestIssue\":\".*?\"', info.replace('\\', ''))[0].split('vol/')[1].split('/')[0]
+                pass
+            elif item == "Chemical Engineering Journal":
+                main_page = 'https://www.sciencedirect.com/journal/chemical-engineering-journal'
+                html_url = requests.get(main_page, headers=headers)
+                html_url.encoding = 'utf-8'
+                soup_comp = BeautifulSoup(html_url.content, features='lxml')
+                info = str(soup_comp)
+                # info = soup_comp.find(type="application/json").get_text()
+                vol = re.findall('latestIssue\":\".*?\"', info.replace('\\', ''))[0].split('vol/')[1].split('/')[0]
+            elif item == "Journal of Cleaner Production":
+                main_page = 'https://www.sciencedirect.com/journal/journal-of-cleaner-production'
+                html_url = requests.get(main_page, headers=headers)
+                html_url.encoding = 'utf-8'
+                soup_comp = BeautifulSoup(html_url.content, features='lxml')
+                info = str(soup_comp)
+                # info = soup_comp.find(type="application/json").get_text()
+                vol = re.findall('latestIssue\":\".*?\"', info.replace('\\', ''))[0].split('vol/')[1].split('/')[0]
+            elif item == "Environmental Science and Technology":
+                main_page = 'https://pubs.acs.org/journal/esthag'
+                html_url = requests.get(main_page, headers=headers)
+                soup_comp = BeautifulSoup(html_url.content, features='lxml')
+                info = soup_comp.find("div", {"class": "jhHeader_right"}).get_text()
+                vol = re.findall('Volume\s\d*', info)[0][7:]
+                iss = re.findall('Issue\s\d*', info)[0][6:]
+        else:
+            main_page = self.lineEdit.text()
+            try:
+                html_url = requests.get(main_page, headers=headers)
+                soup_comp = BeautifulSoup(html_url.content, features='lxml')
+                info = soup_comp.find(type="application/json").get_text()
+                vol = re.findall('latestIssue\":\".*?\"', info.replace('\\', ''))[0].split('vol/')[1].split('/')[0]
+            except:
+                QMessageBox.information(self.pushButton, "错误", "无效的地址！")
+
+        if vol == 0:
+            QMessageBox.information(self.pushButton, "错误", "爬取失败！")
+
+        if item == "Environmental Science and Technology":
+            self.est_vol = vol
+            self.label_2.setText("输入期数(iss:{}-{})".format(int(iss) - 10, int(iss)))
+        else:
+            self.label_2.setText("输入期数({}-{})".format(int(vol)-10, int(vol)))  # 设置期数范围
 
     def crawler_papers(self):
-        url = "https://www.sciencedirect.com/journal/water-research/vol/180/suppl/C"
+        urls = []
+        vol = self.lineEdit_2.text()
+        if not self.checkBox.isChecked():
+            item = self.comboBox.currentText()
+            if item == "Water Research":
+                urls.append("https://www.sciencedirect.com/journal/water-research/vol/{}/suppl/C".format(int(vol)))
+            elif item == "Chemical Engineering Journal":
+                urls.append("https://www.sciencedirect.com/journal/chemical-engineering-journal/vol/{}/suppl/C".format(int(vol)))
+            elif item == "Journal of Cleaner Production":
+                urls.append("https://www.sciencedirect.com/journal/journal-of-cleaner-production/{}/suppl/C".format(int(vol)))
+            elif item == "Environmental Science and Technology":
+                urls.append('https://pubs.acs.org/toc/esthag/{}/{}'.format(int(self.est_vol), int(vol)))
+
         self.data = {}
         # self.df_csv = pd.DataFrame(columns=["标题", "中文标题", "第一作者", "通讯作者", "第一单位", "链接"])
         self.tableWidget.setRowCount(0)  # 先清空表格
+        count = 0
+        self.num = 0
+        for url in urls:
+            self.headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
+            }
+            html = requests.get(url, headers=self.headers)
+            soup = BeautifulSoup(html.content, features='lxml')
+            title = soup.find_all('span', {'class': 'js-article-title'})
+            count += len(title)
 
-        crawler = self.get_results(url)
+        for url in urls:
+            self.get_results(url, count)
 
+        QMessageBox.information(self.pushButton_3, "消息", "爬取结束！")
         pass
 
     def output_csv(self):  # 导出csv
@@ -245,7 +326,8 @@ class Ui_MainWindow(object):
             refs[i] = json.loads(refs[i])  # 使refs[i]从str->dict
             name = refs[i]['givenName'] + ' ' + refs[i]['surname']
 
-            if 'cor1' in refs[i]['refs'] or 'cor2' in refs[i]['refs']:
+            if 'cor0001' in refs[i]['refs'] or 'cor0002' in refs[i]['refs'] or 'cor1' in refs[i]['refs'] or \
+                'cor2' in refs[i]['refs']:
                 authors['通讯'].append(name)
 
             if refs[i]['id'] == 'auth-0':
@@ -259,11 +341,7 @@ class Ui_MainWindow(object):
 
         return authors
 
-    def get_results(self, url):
-        self.headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.90 Safari/537.36',
-        }
-
+    def get_results(self, url, count):
         # url = "https://www.sciencedirect.com/journal/water-research/vol/180/suppl/C"
         self.url = url
         self.html = requests.get(self.url, headers=self.headers)
@@ -290,7 +368,7 @@ class Ui_MainWindow(object):
         self.results = re.findall(self.regex1, self.soup2_str)
 
         res = {'标题': [], '中文标题': [], '作者': [], '链接': []}
-        for title, link, num in zip(self.title, self.link, range(len(self.title))):
+        for title, link in zip(self.title, self.link):
             paper_title = title.get_text()
 
             res['标题'].append(title.get_text())
@@ -322,7 +400,6 @@ class Ui_MainWindow(object):
                 ref = 'None'
                 self.count += 1
             else:
-                # print('作者：', name[i-count].get_text())
                 res['作者'].append(self.author_info(self.results[self.i - self.count]))
                 authors = self.author_info(self.results[self.i - self.count])
                 first = ', '.join(i for i in authors['一作'])
@@ -332,17 +409,19 @@ class Ui_MainWindow(object):
             link = 'https://www.sciencedirect.com' + link['href']
 
             self.i += 1
+            self.num += 1
 
             QApplication.processEvents()
-            self.progressBar.setValue((num + 1) / len(self.title) * 100)
+            self.progressBar.setValue((self.num + 1) / count * 100)
             self.table_insert(paper_title, chn_title, first, ref, link, loc='None')
-            self.data[num] = [paper_title, chn_title, first, ref, 'None', link]
+            self.data[self.num] = [paper_title, chn_title, first, ref, 'None', link]
 
         return res
 
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
     ui = Ui_MainWindow()
     main_window = QtWidgets.QMainWindow()
     ui.setupUi(main_window)
